@@ -170,12 +170,13 @@ if __name__ == "__main__":
     from configs import OPENAI_API_KEY
     from graphragrec.utils.visualize_graph import visualize_graph
     from graphragrec.utils.detect_communities import detect_communities, visualize_community_graph, save_communities
+    import os
+
     movies = json.loads(open("./imdb/data/imdb_top_100.json").read())
     use_movies = movies
     llm = LocalLLM(api_key=OPENAI_API_KEY)
     file_path = "./output/v9-gpt-4o-mini"
-    if not os.path.exists(file_path):
-        os.mkdir(file_path)
+    os.makedirs(file_path, exist_ok=True)
     G, graph_data = asyncio.run(
         build_and_save_multi_movie_graph(llm, "gpt-4o-mini", use_movies,
                                          file_path))

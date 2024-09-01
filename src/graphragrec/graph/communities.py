@@ -41,40 +41,47 @@ def fetchCommunityData(G: nx.Graph, communities: Dict):
 
 
 def divideCommunity(community_content: List):
+    print(f"Dividing community with {len(community_content)} items")
     index = 0
     community_batch = []
     while index < len(community_content):
         community_batch.append([])
         token_length = 0
-        logging.info(f">>>> INDEX: {index} | TOKEN LENGTH: {token_length}")
-        while token_length < 30_000:
-            logging.info(
-                f">>>>>>>> ITEM TOKENS: {len(encoding.encode(f'{community_content[index]}'))}"
-            )
-            token_length += len(encoding.encode(f'{community_content[index]}'))
-            logging.info(
-                f">>>>>>>> INDEX: {index} | CUMMULATIVE TOKEN LENGTH: {token_length}"
-            )
-            # print("TOKEN LENGTH: ", token_length)
-            if token_length < 30_000:
+        print(f">>>> INDEX: {index} | TOKEN LENGTH: {token_length}")
+        while index < len(community_content):
+            try:
+                item_tokens = len(encoding.encode(f'{community_content[index]}'))
+                print(f">>>>>>>> ITEM TOKENS: {item_tokens}")
+                if token_length + item_tokens > 30000:
+                    if token_length == 0:  # If the first item is already too large
+                        print(f"WARNING: Item at index {index} is too large ({item_tokens} tokens). Adding it to its own batch.")
+                        community_batch[-1].append(community_content[index])
+                        index += 1
+                    break
+                token_length += item_tokens
+                print(f">>>>>>>> INDEX: {index} | CUMULATIVE TOKEN LENGTH: {token_length}")
                 community_batch[-1].append(community_content[index])
                 index += 1
-            else:
-                break
-            if index >= len(community_content):
-                break
+            except Exception as e:
+                print(f"Error processing item at index {index}: {str(e)}")
+                index += 1
+    print(f"Community divided into {len(community_batch)} batches")
     return community_batch
 
 
 def batchCommunities(community_data: Dict):
+    print("Starting batchCommunities function")
     communitybatches = {}
     for cid, items in community_data.items():
+        print(f"Processing community ID: {cid}")
         logging.info(f"> COMMUNITY ID: [{cid}]")
         community_batches = divideCommunity(items)
+        print(f"Community {cid} divided into {len(community_batches)} batches")
         logging.info(
             f"> COMMUNITY ID: [{cid}] | TOTAL BATCHES: [{len(community_batches)}]"
         )
         communitybatches[cid] = community_batches
+    print(f"Total communities processed: {len(communitybatches)}")
     return communitybatches
 
 
@@ -114,7 +121,9 @@ async def summarizeCommunity(llm: LocalLLM, model: str, community_id: int,
 
 
 async def summarizeCommunities(llm: LocalLLM, model: str, communities: Dict):
+    print("Starting summarizeCommunities function")
     communities_batched = batchCommunities(communities)
+    print(f"Batched communities: {len(communities_batched)}")
     pbar = tqdm(total=len(communities_batched),
                 desc="Summarizing Communities",
                 colour="blue")
@@ -128,6 +137,7 @@ async def summarizeCommunities(llm: LocalLLM, model: str, communities: Dict):
     async def execute_community_summary(community_id: int,
                                         community_batches: List[List[Dict]]):
         try:
+            print(f"Processing community {community_id}")
             time.sleep(random.choice([0.2, 0.4, 0.5, 0.8, 0.9, 1.1]))
             cr, u = await summarizeCommunity(llm, model, community_id,
                                              community_batches)
@@ -148,6 +158,7 @@ async def summarizeCommunities(llm: LocalLLM, model: str, communities: Dict):
                            desc="Batch Summarization",
                            leave=False):
         try:
+            print(f"Processing batch {ix}")
             await asyncio.gather(*[
                 execute_community_summary(
                     community_ids[i], communities_batched[community_ids[i]])
@@ -168,20 +179,33 @@ if __name__ == "__main__":
     import pickle
     import json
     from configs import OPENAI_API_KEY
-    with open("./output/v9-gpt-4o-mini/graph.gpickle", "rb") as fp:
+    
+    print("Starting script execution")
+    
+    base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    graph_path = os.path.join(base_path, "output", "v9-gpt-4o-mini", "graph.gpickle")
+    communities_path = os.path.join(base_path, "output", "v9-gpt-4o-mini", "communities.json")
+    community_data_path = os.path.join(base_path, "output", "v9-gpt-4o-mini", "community-data.json")
+    community_reports_path = os.path.join(base_path, "output", "v9-gpt-4o-mini", "community-reports.json")
+    
+    print(f"Loading graph from {graph_path}")
+    with open(graph_path, "rb") as fp:
         G = pickle.load(fp)
-    with open("./output/v9-gpt-4o-mini/communities.json", "r") as fp:
+    print(f"Loading communities from {communities_path}")
+    with open(communities_path, "r") as fp:
         communities = json.load(fp)
+    print("Fetching community data")
     community2data = fetchCommunityData(G, communities)
     print(f"TOTAL COMMUNITIES: {len(list(community2data.keys()))}")
-    with open("./output/v9-gpt-4o-mini/community-data.json", "w") as fp:
+    print(f"Saving community data to {community_data_path}")
+    with open(community_data_path, "w") as fp:
         json.dump(community2data, fp, indent=4)
-    # commnuity_batches = batchCommunities(community2data)
-    # print(json.dumps(commnuity_batches, indent=4))
-    # print(list(community2data.keys()))
-    # batchCommunities(community2data)
+    print("Initializing LocalLLM")
     llm = LocalLLM(api_key=OPENAI_API_KEY)
+    print("Starting summarizeCommunities")
     community_reports, total_usage = asyncio.run(
         summarizeCommunities(llm, "gpt-4o-mini", community2data))
-    with open("./output/v9-gpt-4o-mini/community-reports.json", "w") as fp:
+    print(f"Saving community reports to {community_reports_path}")
+    with open(community_reports_path, "w") as fp:
         json.dump(community_reports, fp, indent=4)
+    print("Script execution completed")
